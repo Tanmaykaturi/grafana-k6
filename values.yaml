@@ -1,0 +1,32 @@
+# Grafana k6 Operator Configuration
+namespace:
+  create: false
+
+# Enable Prometheus ServiceMonitor (auto-created by Helm)
+metrics:
+  serviceMonitor:
+    enabled: true
+    namespace: "monitoring"
+    interval: "30s"
+    scrapeTimeout: "10s"
+    labels:
+      release: prometheus
+
+manager:
+  replicas: 1
+  logging:
+    development: false
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  image:
+    repository: grafana/k6-operator
+    tag: controller-v1.4.0
+    pullPolicy: IfNotPresent
+
+rbac:
+  namespaced: false
