@@ -1,0 +1,49 @@
+---
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: ssd-gate-health-check
+  namespace: monitoring
+spec:
+  parallelism: 1
+  paused: "false"
+  
+  script:
+    configMap:
+      name: http-health-check-script
+      file: test.js
+  
+  runner:
+    image: grafana/k6:latest
+    env:
+    # Prometheus Configuration
+    - name: K6_OUT
+      value: "experimental-prometheus-rw"
+    - name: K6_PROMETHEUS_RW_SERVER_URL
+      value: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090/api/v1/write"
+    - name: K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM
+      value: "true"
+    
+    # Test Parameters
+    - name: TARGET_URL
+      value: "http://ssd-gate.ssd-internal.svc.cluster.local:8084"
+    - name: VUS
+      value: "3"
+    - name: TEST_DURATION
+      value: "30s"
+    
+    # Custom Tags
+    - name: CLUSTER_NAME
+      value: "ssd-sandbox"
+    - name: TEST_ID
+      value: "ssd-gate-health"
+    - name: ENVIRONMENT
+      value: "internal"
+    
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 200m
+        memory: 256Mi
