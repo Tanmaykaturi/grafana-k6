@@ -1,0 +1,63 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: http-health-check-script
+  namespace: monitoring
+  labels:
+    app: k6-tests
+    test-type: health-check
+data:
+  test.js: |
+    import http from 'k6/http';
+    import { check, sleep } from 'k6';
+
+    const TARGET_URL = __ENV.TARGET_URL || 'http://localhost:8080';
+    const TEST_DURATION = __ENV.TEST_DURATION || '1m';
+    const VUS = parseInt(__ENV.VUS || '5');
+    const CHECK_INTERVAL = parseFloat(__ENV.CHECK_INTERVAL || '1');
+
+    // Dynamic tags from environment variables
+    const CLUSTER_NAME = __ENV.CLUSTER_NAME || 'unknown-cluster';
+    const TEST_ID = __ENV.TEST_ID || 'unknown-test';
+    const ENVIRONMENT = __ENV.ENVIRONMENT || 'unknown-env';
+
+    export const options = {
+      stages: [
+        { duration: '30s', target: VUS },
+        { duration: TEST_DURATION, target: VUS },
+        { duration: '30s', target: 0 },
+      ],
+      thresholds: {
+        http_req_duration: ['p(95)<500'],
+        'http_req_duration{expected_response:true}': ['p(99)<1000'],
+        http_req_failed: ['rate<0.1'],
+        checks: ['rate>0.95'],
+      },
+    };
+
+    export default function () {
+      const params = {
+        tags: {
+          cluster: CLUSTER_NAME,
+          testid: TEST_ID,
+          environment: ENVIRONMENT
+        }
+      };
+
+      const res = http.get(`${TARGET_URL}/health`, params);
+
+      check(res, {
+        'status is 200': (r) => r.status === 200,
+        'response time < 500ms': (r) => r.timings.duration < 500,
+        'response has body': (r) => r.body && r.body.length > 0,
+      });
+
+      sleep(CHECK_INTERVAL);
+    }
+
+    export function handleSummary(data) {
+      return {
+        'stdout': JSON.stringify(data, null, 2),
+      };
+    }
