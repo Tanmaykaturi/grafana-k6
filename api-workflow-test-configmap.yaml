@@ -1,0 +1,94 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-workflow-test-script
+  namespace: monitoring
+  labels:
+    app: k6-tests
+    test-type: api-workflow
+data:
+  test.js: |
+    import http from 'k6/http';
+    import { check, group, sleep } from 'k6';
+
+    const BASE_URL = __ENV.TARGET_URL || 'http://localhost:8080';
+    const VUS = parseInt(__ENV.VUS || '5');
+    const TEST_DURATION = __ENV.TEST_DURATION || '3m';
+
+    // Dynamic tags from environment variables
+    const CLUSTER_NAME = __ENV.CLUSTER_NAME || 'unknown-cluster';
+    const TEST_ID = __ENV.TEST_ID || 'unknown-test';
+    const ENVIRONMENT = __ENV.ENVIRONMENT || 'unknown-env';
+
+    export const options = {
+      stages: [
+        { duration: '1m', target: VUS },
+        { duration: TEST_DURATION, target: VUS },
+        { duration: '1m', target: 0 },
+      ],
+      thresholds: {
+        'group_duration{group:::Health Check}': ['p(95)<200'],
+        'group_duration{group:::API Operations}': ['p(95)<1000'],
+        http_req_failed: ['rate<0.05'],
+        checks: ['rate>0.95'],
+      },
+    };
+
+    export default function () {
+      const params = {
+        tags: {
+          cluster: CLUSTER_NAME,
+          testid: TEST_ID,
+          environment: ENVIRONMENT
+        }
+      };
+
+      group('Health Check', () => {
+        const res = http.get(`${BASE_URL}/health`, params);
+        check(res, {
+          'health check OK': (r) => r.status === 200,
+        });
+      });
+
+      sleep(1);
+
+      group('API Operations', () => {
+        const createPayload = JSON.stringify({
+          name: `test-item-${__VU}-${Date.now()}`,
+          description: 'k6 test item',
+        });
+
+        const createRes = http.post(
+          `${BASE_URL}/api/v1/items`,
+          createPayload,
+          {
+            headers: { 'Content-Type': 'application/json' },
+            tags: params.tags
+          }
+        );
+
+        const createSuccess = check(createRes, {
+          'create successful': (r) => r.status === 201 || r.status === 200,
+          'create response has body': (r) => r.body && r.body.length > 0,
+        });
+
+        if (createSuccess && createRes.json('id')) {
+          const itemId = createRes.json('id');
+          const readRes = http.get(`${BASE_URL}/api/v1/items/${itemId}`, params);
+
+          check(readRes, {
+            'read successful': (r) => r.status === 200,
+            'read response has correct id': (r) => r.json('id') === itemId,
+          });
+        }
+      });
+
+      sleep(1);
+    }
+
+    export function handleSummary(data) {
+      return {
+        'stdout': JSON.stringify(data, null, 2),
+      };
+    }
